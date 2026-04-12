@@ -147,4 +147,36 @@ Docker-окружение
 
 ## Примечания
 - ORM, QueryBuilder, DatabaseSystem и EnvLoder взял из своих прошлых референсов.
-- Поставил цель не использовать composer в данном проекте
+- Поставил цель не использовать composer в данном проекте (за исключением smarty)
+
+## Миграции
+
+### Создание миграции
+```bash
+php commands/migrate.php make create_users_table
+```
+
+### Запуск миграций
+```bash
+php commands/migrate.php run
+```
+
+### Откат последней миграции
+```bash
+php commands/migrate.php rollback
+```
+
+### Откат 3-х последних миграций
+```bash
+php commands/migrate.php rollback 3
+```
+
+### Полный рефреш (откат всех и накат заново)
+```bash
+php commands/migrate.php refresh
+```
+
+### Генерация миграции из модели
+```bash
+php commands/generate-migration.php User
+```

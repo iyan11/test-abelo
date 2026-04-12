@@ -15,6 +15,11 @@ class DatabaseSystem
         }
     }
 
+    public function getConnection(): PDO
+    {
+        return $this->connection;
+    }
+
     function __construct()
     {
         $db = new databaseConfig();
