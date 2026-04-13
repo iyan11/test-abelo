@@ -1,7 +1,7 @@
 <?php
 namespace config;
 
-class databaseConfig {
+class DatabaseConfig {
     function getConfig(): array
     {
         return [

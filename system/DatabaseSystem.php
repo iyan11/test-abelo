@@ -1,7 +1,7 @@
 <?php
 namespace system;
 
-use config\databaseConfig;
+use config\DatabaseConfig;
 use PDO;
 use PDOException;
 use PDOStatement;
