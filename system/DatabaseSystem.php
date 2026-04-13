@@ -9,32 +9,29 @@ use PDOStatement;
 class DatabaseSystem
 {
     private static ?DatabaseSystem $instance = null;
-    private PDO $connection {
-        get {
-            return $this->connection;
-        }
-    }
+    private PDO $connection;
 
-    public function getConnection(): PDO
-    {
-        return $this->connection;
-    }
-
-    function __construct()
+    public function __construct()
     {
         $db = new databaseConfig();
         $config = $db->getConfig();
 
-        $dsn = "mysql:host={$config['host']};port={$config['port']};dbname={$config['db']};charset={$config['charset']}";
+        $dsn = sprintf(
+            'mysql:host=%s;port=%s;dbname=%s;charset=%s',
+            $config['host'],
+            $config['port'],
+            $config['db'],
+            $config['charset']
+        );
 
         try {
             $this->connection = new PDO($dsn, $config['user'], $config['password'], [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_EMULATE_PREPARES => false
+                PDO::ATTR_EMULATE_PREPARES => false,
             ]);
         } catch (PDOException $e) {
-            die("Ошибка подключения к БД: " . $e->getMessage());
+            die('Ошибка подключения к БД: ' . $e->getMessage());
         }
     }
 
@@ -43,19 +40,39 @@ class DatabaseSystem
         if (self::$instance === null) {
             self::$instance = new self();
         }
+
         return self::$instance;
+    }
+
+    public function getConnection(): PDO
+    {
+        return $this->connection;
     }
 
     public function query(string $sql, array $params = []): false|PDOStatement
     {
         $stmt = $this->connection->prepare($sql);
-        $stmt->execute($params);
+
+        foreach ($params as $key => $value) {
+            $type = match (true) {
+                is_int($value) => PDO::PARAM_INT,
+                is_bool($value) => PDO::PARAM_BOOL,
+                $value === null => PDO::PARAM_NULL,
+                default => PDO::PARAM_STR,
+            };
+
+            $param = is_int($key) ? $key + 1 : $key;
+            $stmt->bindValue($param, $value, $type);
+        }
+
+        $stmt->execute();
+
         return $stmt;
     }
 
     public function lastInsertId(): int
     {
-        return (int)$this->connection->lastInsertId();
+        return (int) $this->connection->lastInsertId();
     }
 
     public function beginTransaction(): void
@@ -70,7 +87,6 @@ class DatabaseSystem
 
     public function rollback(): void
     {
-        $this->connection->rollback();
+        $this->connection->rollBack();
     }
 }
-

@@ -6,18 +6,8 @@ use system\DatabaseSystem;
 
 class Post extends ORM
 {
-    private int $id;
-    private string $title;
-    private string $description;
-    private string $slug;
-    private string $photo;
-    private string $content;
-    private int $views;
-    private string $created_at;
-    private string $updated_at;
-
-    protected ?string $table = 'posts';
-    protected string $primaryKey = 'id';
+    protected $table = 'posts';
+    protected $primaryKey = 'id';
     protected array $fillable = [
         'title',
         'description',
@@ -30,7 +20,6 @@ class Post extends ORM
     ];
     protected array $hidden = [];
 
-    // Конструктор с дополнительной инициализацией
     public function __construct()
     {
         parent::__construct();
@@ -40,14 +29,8 @@ class Post extends ORM
         }
     }
 
-    // ========== Отношения ==========
-
-    /**
-     * Отношение к категориям (многие ко многим)
-     */
     public function categories(): array
     {
-        // Для many-to-many нужна промежуточная таблица
         $db = DatabaseSystem::getInstance();
         $sql = "SELECT c.* FROM categories c 
                 INNER JOIN category_post cp ON cp.category_id = c.id 
@@ -66,52 +49,79 @@ class Post extends ORM
         return $categories;
     }
 
-    // ========== Скоупы (условия) ==========
+    public function getCategory(): ?Category
+    {
+        $categories = $this->categories();
+        return !empty($categories) ? $categories[0] : null;
+    }
 
+    public function getSimilarPosts(int $limit = 3): array
+    {
+        $categories = $this->categories();
+        if (empty($categories)) {
+            return [];
+        }
 
-    /**
-     * Популярные посты (по просмотрам)
-     */
+        $categoryIds = array_map(function($cat) {
+            return $cat->id;
+        }, $categories);
+
+        $placeholders = implode(',', array_fill(0, count($categoryIds), '?'));
+
+        $db = DatabaseSystem::getInstance();
+        $sql = "SELECT DISTINCT p.* FROM posts p 
+                INNER JOIN category_post cp ON cp.post_id = p.id 
+                WHERE cp.category_id IN ({$placeholders}) 
+                AND p.id != ? 
+                ORDER BY p.created_at DESC 
+                LIMIT ?";
+
+        $params = array_merge($categoryIds, [$this->id, $limit]);
+        $stmt = $db->query($sql, $params);
+        $result = $stmt->fetchAll();
+
+        $posts = [];
+        foreach ($result as $data) {
+            $post = new Post();
+            $post->hydrate($data);
+            $post->exists = true;
+            $posts[] = $post;
+        }
+
+        return $posts;
+    }
+
     public static function popular(int $limit = 10): array
     {
-        return self::orderBy('views', 'DESC')
-            ->limit($limit)
-            ->get();
+        $instance = new static();
+        $db = DatabaseSystem::getInstance();
+        $sql = "SELECT * FROM {$instance->table} ORDER BY views DESC LIMIT :limit";
+        $stmt = $db->query($sql, [':limit' => $limit]);
+        $results = $stmt->fetchAll();
+
+        $posts = [];
+        foreach ($results as $data) {
+            $post = new static();
+            $post->hydrate($data);
+            $post->exists = true;
+            $posts[] = $post;
+        }
+
+        return $posts;
     }
 
-    /**
-     * Похожие посты
-     */
-    public function similar(int $limit = 5): array
-    {
-        return self::where('id', '!=', $this->id)
-            ->where('category_id', '=', $this->category_id)
-            ->orderBy('created_at', 'DESC')
-            ->limit($limit)
-            ->get();
-    }
-
-    // ========== Методы ==========
-
-    /**
-     * Увеличить счетчик просмотров
-     */
     public function incrementViews(): bool
     {
-        $this->views++;
+        $this->attributes['views']++;
         return $this->save();
     }
 
-    /**
-     * Сгенерировать slug из заголовка
-     */
     public function generateSlug(): string
     {
         $slug = strtolower(trim($this->title));
         $slug = preg_replace('/[^a-z0-9-]/', '-', $slug);
         $slug = preg_replace('/-+/', '-', $slug);
 
-        // Проверяем уникальность
         $originalSlug = $slug;
         $counter = 1;
 
@@ -123,51 +133,42 @@ class Post extends ORM
         return $slug;
     }
 
-    /**
-     * Проверить существование slug
-     */
     private function slugExists(string $slug): bool
     {
-        $existing = self::where('slug', '=', $slug)->first();
-        return $existing && $existing->id !== ($this->id ?? null);
+        $db = DatabaseSystem::getInstance();
+        $stmt = $db->query("SELECT id FROM {$this->table} WHERE slug = :slug", [':slug' => $slug]);
+        $existing = $stmt->fetch();
+        return $existing && $existing['id'] !== ($this->id ?? null);
     }
 
-    /**
-     * Получить URL поста
-     */
     public function getUrl(): string
     {
         return '/posts/' . ($this->slug ?? $this->id);
     }
 
-
-    /**
-     * Форматированная дата публикации
-     */
     public function getFormattedDate(string $format = 'd.m.Y H:i'): string
     {
         return date($format, strtotime($this->created_at));
     }
 
-    /**
-     * Получить время чтения в минутах
-     */
     public function getReadingTime(): int
     {
-        $words = str_word_count(strip_tags($this->content));
-        return max(1, ceil($words / 200)); // 200 слов в минуту
+        preg_match_all('/[\p{L}\p{N}\']+/u', strip_tags((string) $this->content), $matches);
+        $words = count($matches[0]);
+
+        return max(1, (int) ceil($words / 200));
     }
 
-    // ========== Переопределение методов ORM ==========
-
-    /**
-     * Автоматическая генерация slug перед сохранением
-     */
     public function save(): bool
     {
         if (empty($this->slug) && !empty($this->title)) {
             $this->slug = $this->generateSlug();
         }
+
+        if (empty($this->created_at)) {
+            $this->created_at = date('Y-m-d H:i:s');
+        }
+        $this->updated_at = date('Y-m-d H:i:s');
 
         return parent::save();
     }

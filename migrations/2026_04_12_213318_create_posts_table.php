@@ -13,7 +13,7 @@ class PostsTable extends Migration
             $table->string('description');
             $table->string('slug');
             $table->string('photo');
-            $table->string('content');
+            $table->longText('content');
             $table->integer('views');
             $table->timestamps();
 

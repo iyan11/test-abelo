@@ -15,14 +15,12 @@ class Controller
         $this->request = new Request();
     }
 
-    // Отображение Smarty шаблона
-
     /**
      * @throws Exception
      */
-    protected function render(string $view, array $data = []): void
+    protected function render(string $view, array $data = []): string
     {
-        $this->view->display($view, $data);
+        return $this->view->fetch($view, $data);
     }
 
     // JSON ответ

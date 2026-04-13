@@ -10,7 +10,6 @@ class Router
     private static string $prefix = '';
     private static array $middlewares = [];
 
-    // Базовые методы HTTP
     public static function get(string $path, $handler, array $middlewares = []): void
     {
         self::addRoute('GET', $path, $handler, $middlewares);
@@ -70,6 +69,10 @@ class Router
      */
     public static function dispatch(string $method, string $uri)
     {
+        if ($method === 'HEAD') {
+            $method = 'GET';
+        }
+
         // Удаляем query string
         $uri = strtok($uri, '?');
 

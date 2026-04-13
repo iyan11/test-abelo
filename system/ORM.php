@@ -1,19 +1,15 @@
 <?php
 namespace system;
 
-use ReflectionClass;
-use ReflectionException;
-
 abstract class ORM
 {
-    protected ?string $table = null;
-    protected string $primaryKey = 'id';
+    protected $table = null;
+    protected $primaryKey = 'id';
     protected array $fillable = [];
     protected array $hidden = [];
     protected array $attributes = [];
     protected array $original = [];
     protected bool $exists = false;
-
     protected DatabaseSystem $db;
 
     public function __construct()
@@ -21,26 +17,27 @@ abstract class ORM
         $this->db = DatabaseSystem::getInstance();
 
         if ($this->table === null) {
-            $className = new ReflectionClass($this)->getShortName();
+            $className = (new \ReflectionClass($this))->getShortName();
             $this->table = strtolower($className) . 's';
         }
     }
 
-    // ========== CRUD операции ==========
-
-    public static function create(array $data): self
+    public static function where(string $column, string $operator, $value): QueryBuilder
     {
         $instance = new static();
-        $instance->fill($data);
-        $instance->save();
-        return $instance;
+        return (new QueryBuilder($instance))->where($column, $operator, $value);
+    }
+
+    public static function first(): ?self
+    {
+        return static::where('id', '>', 0)->first();
     }
 
     public static function find($id): ?self
     {
         $instance = new static();
         $result = $instance->db->query(
-            "SELECT * FROM $instance->table WHERE $instance->primaryKey = :id LIMIT 1",
+            "SELECT * FROM `{$instance->table}` WHERE `{$instance->primaryKey}` = :id LIMIT 1",
             [':id' => $id]
         )->fetch();
 
@@ -50,13 +47,14 @@ abstract class ORM
 
         $instance->hydrate($result);
         $instance->exists = true;
+
         return $instance;
     }
 
     public static function all(): array
     {
         $instance = new static();
-        $results = $instance->db->query("SELECT * FROM $instance->table")->fetchAll();
+        $results = $instance->db->query("SELECT * FROM `{$instance->table}`")->fetchAll();
 
         $items = [];
         foreach ($results as $result) {
@@ -69,9 +67,30 @@ abstract class ORM
         return $items;
     }
 
-    public static function where(string $column, string $operator, $value): QueryBuilder
+    public static function create(array $data): self
     {
-        return new QueryBuilder(new static())->where($column, $operator, $value);
+        $instance = new static();
+        $instance->fill($data);
+        $instance->save();
+
+        return $instance;
+    }
+
+    public function fill(array $data): self
+    {
+        foreach ($data as $key => $value) {
+            if (in_array($key, $this->fillable, true)) {
+                $this->attributes[$key] = $value;
+            }
+        }
+
+        return $this;
+    }
+
+    public function hydrate(array $data): void
+    {
+        $this->attributes = $data;
+        $this->syncOriginal();
     }
 
     public function save(): bool
@@ -86,16 +105,15 @@ abstract class ORM
     private function insert(): bool
     {
         $data = $this->getFillableAttributes();
-
         if (empty($data)) {
             return false;
         }
 
         $columns = array_keys($data);
-        $placeholders = array_map(fn($col) => ":$col", $columns);
+        $placeholders = array_map(fn ($column) => ':' . $column, $columns);
 
-        $sql = "INSERT INTO $this->table (" . implode(', ', $columns) . ") 
-                VALUES (" . implode(', ', $placeholders) . ")";
+        $sql = "INSERT INTO `{$this->table}` (`" . implode('`, `', $columns) . "`)"
+            . ' VALUES (' . implode(', ', $placeholders) . ')';
 
         $this->db->query($sql, $data);
 
@@ -112,21 +130,19 @@ abstract class ORM
     private function update(): bool
     {
         $data = $this->getFillableAttributes();
-
         if (empty($data)) {
             return false;
         }
 
         $sets = [];
         foreach (array_keys($data) as $column) {
-            $sets[] = "$column = :$column";
+            $sets[] = "`{$column}` = :{$column}";
         }
 
-        $sql = "UPDATE $this->table SET " . implode(', ', $sets) . " 
-                WHERE $this->primaryKey = :_primaryKey";
+        $sql = "UPDATE `{$this->table}` SET " . implode(', ', $sets)
+            . " WHERE `{$this->primaryKey}` = :_primaryKey";
 
         $data['_primaryKey'] = $this->attributes[$this->primaryKey];
-
         $this->db->query($sql, $data);
         $this->syncOriginal();
 
@@ -139,77 +155,28 @@ abstract class ORM
             return false;
         }
 
-        $sql = "DELETE FROM $this->table WHERE $this->primaryKey = :id";
+        $sql = "DELETE FROM `{$this->table}` WHERE `{$this->primaryKey}` = :id";
         $this->db->query($sql, [':id' => $this->attributes[$this->primaryKey]]);
-
         $this->exists = false;
 
         return true;
-    }
-
-    // ========== Отношения ==========
-
-    public function hasMany(string $relatedClass, ?string $foreignKey = null, ?string $localKey = null): array
-    {
-        $foreignKey = $foreignKey ?: strtolower(new ReflectionClass($this)->getShortName()) . '_id';
-        $localKey = $localKey ?: $this->primaryKey;
-
-        return $relatedClass::where($foreignKey, '=', $this->attributes[$localKey])->get();
-    }
-
-    /**
-     * @throws ReflectionException
-     */
-    public function belongsTo(string $relatedClass, ?string $foreignKey = null): ?ORM
-    {
-        $foreignKey = $foreignKey ?: strtolower(new ReflectionClass($relatedClass)->getShortName()) . '_id';
-
-        return $relatedClass::find($this->attributes[$foreignKey]);
-    }
-
-    public function hasOne(string $relatedClass, ?string $foreignKey = null, ?string $localKey = null): ?ORM
-    {
-        $foreignKey = $foreignKey ?: strtolower(new ReflectionClass($this)->getShortName()) . '_id';
-        $localKey = $localKey ?: $this->primaryKey;
-
-        $results = $relatedClass::where($foreignKey, '=', $this->attributes[$localKey])->limit(1)->get();
-
-        return $results[0] ?? null;
-    }
-
-    // ========== Вспомогательные методы ==========
-
-    public function fill(array $data): self
-    {
-        foreach ($data as $key => $value) {
-            if (in_array($key, $this->fillable)) {
-                $this->attributes[$key] = $value;
-            }
-        }
-
-        return $this;
-    }
-
-    public function hydrate(array $data): void
-    {
-        $this->attributes = $data;
-        $this->syncOriginal();
-    }
-
-    protected function syncOriginal(): void
-    {
-        $this->original = $this->attributes;
     }
 
     protected function getFillableAttributes(): array
     {
         $data = [];
         foreach ($this->fillable as $field) {
-            if (isset($this->attributes[$field])) {
+            if (array_key_exists($field, $this->attributes)) {
                 $data[$field] = $this->attributes[$field];
             }
         }
+
         return $data;
+    }
+
+    protected function syncOriginal(): void
+    {
+        $this->original = $this->attributes;
     }
 
     public function toArray(): array
@@ -225,18 +192,34 @@ abstract class ORM
 
     public function __get($name)
     {
+        if ($name === 'exists') {
+            return $this->exists;
+        }
+
         return $this->attributes[$name] ?? null;
     }
 
-    public function __set($name, $value)
+    public function __set($name, $value): void
     {
-        if (in_array($name, $this->fillable)) {
-            $this->attributes[$name] = $value;
+        if ($name === 'exists') {
+            $this->exists = (bool) $value;
+            return;
         }
+
+        $this->attributes[$name] = $value;
     }
 
-    public function __isset($name)
+    public function __isset($name): bool
     {
+        if ($name === 'exists') {
+            return true;
+        }
+
         return isset($this->attributes[$name]);
+    }
+
+    public function getTableName(): string
+    {
+        return $this->table;
     }
 }

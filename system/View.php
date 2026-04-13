@@ -7,31 +7,39 @@ use Smarty\Smarty;
 class View
 {
     private static ?View $instance = null;
-    private Smarty $smarty {
-        get {
-            return $this->smarty;
-        }
-    }
+    private Smarty $smarty;
 
+    /**
+     * @throws Exception
+     */
     private function __construct()
     {
         $this->smarty = new Smarty();
 
-        // Настройка путей
-        $this->smarty->setTemplateDir(__DIR__ . '/../views/templates/');
-        $this->smarty->setCompileDir(__DIR__ . '/../views/templates_c/');
-        $this->smarty->setCacheDir(__DIR__ . '/../system/cache/');
-        $this->smarty->setConfigDir(__DIR__ . '/../system/configs/');
+        $templateDir = __DIR__ . '/../views/templates/';
+        $compileDir = __DIR__ . '/../views/templates_c/';
+        $cacheDir = __DIR__ . '/../system/cache/';
+        $configDir = __DIR__ . '/../system/configs/';
 
-        // Настройки для разработки
+        foreach ([$compileDir, $cacheDir, $configDir] as $dir) {
+            if (!is_dir($dir)) {
+                mkdir($dir, 0777, true);
+            }
+        }
+
+        $this->smarty->setTemplateDir($templateDir);
+        $this->smarty->setCompileDir($compileDir);
+        $this->smarty->setCacheDir($cacheDir);
+        $this->smarty->setConfigDir($configDir);
         $this->smarty->setCompileCheck(true);
         $this->smarty->setCaching(false);
         $this->smarty->debugging = false;
 
-        // Убираем устаревший assignGlobal, используем обычный assign
         $this->assign('app_name', getenv('APP_NAME') ?: 'My App');
         $this->assign('app_url', getenv('APP_URL') ?: 'http://localhost');
         $this->assign('current_year', date('Y'));
+
+        $this->registerCustomModifiers();
     }
 
     public static function getInstance(): self
@@ -39,17 +47,15 @@ class View
         if (self::$instance === null) {
             self::$instance = new self();
         }
+
         return self::$instance;
     }
 
-    // Назначить переменную шаблону (работает как глобальная)
     public function assign(string $key, $value): self
     {
         $this->smarty->assign($key, $value);
         return $this;
     }
-
-    // Отобразить шаблон
 
     /**
      * @throws Exception
@@ -63,8 +69,6 @@ class View
         return $this->smarty->fetch($template . '.tpl');
     }
 
-    // Вывести шаблон
-
     /**
      * @throws Exception
      */
@@ -77,9 +81,6 @@ class View
         $this->smarty->display($template . '.tpl');
     }
 
-    // Получить объект Smarty для прямого доступа
-
-    // Добавить плагин или модификатор
     /**
      * @throws Exception
      */
@@ -88,8 +89,6 @@ class View
         $this->smarty->registerPlugin($type, $name, $callback);
     }
 
-    // Очистить кэш
-
     /**
      * @throws Exception
      */
@@ -97,34 +96,41 @@ class View
     {
         if ($template) {
             $this->smarty->clearCache($template . '.tpl');
-        } else {
-            $this->smarty->clearAllCache();
+            return;
         }
-    }
 
-    // Регистрация пользовательских модификаторов
+        $this->smarty->clearAllCache();
+    }
 
     /**
      * @throws Exception
      */
     public function registerCustomModifiers(): void
     {
-        // Модификатор для форматирования даты
-        $this->smarty->registerPlugin('modifier', 'date_format_custom', function($timestamp, $format = 'd.m.Y') {
-            return date($format, strtotime($timestamp));
+        $this->smarty->registerPlugin('modifier', 'date_format_custom', function ($timestamp, $format = 'd.m.Y') {
+            return date($format, strtotime((string) $timestamp));
         });
 
-        // Модификатор для обрезания текста
-        $this->smarty->registerPlugin('modifier', 'truncate', function($string, $length = 100) {
-            if (strlen($string) <= $length) {
+        $this->smarty->registerPlugin('modifier', 'truncate', function ($string, $length = 100) {
+            $string = (string) $string;
+            if (mb_strlen($string) <= $length) {
                 return $string;
             }
-            return substr($string, 0, $length) . '...';
-        });
 
-        // Модификатор для преобразования в валюту
-        $this->smarty->registerPlugin('modifier', 'currency', function($amount, $symbol = '$') {
-            return $symbol . number_format($amount, 2);
+            return mb_substr($string, 0, $length) . '...';
         });
+    }
+
+    public function getSmarty(): Smarty
+    {
+        return $this->smarty;
+    }
+
+    /**
+     * @throws Exception
+     */
+    public function fetch(string $template, array $data = []): string
+    {
+        return $this->render($template, $data);
     }
 }

@@ -1,5 +1,7 @@
 # Этот репозиторий - это тестовое задание.
 
+Демо: smarty.iyan11.ru
+
 ---
 ## Содержание
 1. [Запуск](#Запуск)
@@ -176,7 +178,7 @@ php commands/migrate.php rollback 3
 php commands/migrate.php refresh
 ```
 
-### Генерация миграции из модели
+### Генерация Сидов
 ```bash
-php commands/generate-migration.php User
+php commands/seed.php
 ```

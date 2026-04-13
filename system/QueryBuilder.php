@@ -4,26 +4,25 @@ namespace system;
 class QueryBuilder
 {
     private ORM $model;
-    private ?string $table;
+    private string $table;
     private array $wheres = [];
     private array $orderBy = [];
-    private int|null $limit = null;
-    private int|null $offset = null;
+    private ?int $limit = null;
+    private ?int $offset = null;
     private array $params = [];
 
     public function __construct(ORM $model)
     {
         $this->model = $model;
-        $this->table = $model->table;
+        $this->table = $model->getTableName();
     }
 
     public function where(string $column, string $operator, $value): self
     {
         $this->wheres[] = [
-            'type' => 'basic',
             'column' => $column,
             'operator' => $operator,
-            'value' => $value
+            'value' => $value,
         ];
 
         return $this;
@@ -31,7 +30,7 @@ class QueryBuilder
 
     public function orderBy(string $column, string $direction = 'ASC'): self
     {
-        $this->orderBy[] = "$column $direction";
+        $this->orderBy[] = "{$column} {$direction}";
         return $this;
     }
 
@@ -56,32 +55,35 @@ class QueryBuilder
 
     public function get(): array
     {
-        $sql = "SELECT * FROM $this->table";
+        $sql = "SELECT * FROM `{$this->table}`";
 
         if (!empty($this->wheres)) {
             $conditions = [];
+
             foreach ($this->wheres as $index => $where) {
-                $paramKey = ":where_$index";
-                $conditions[] = "{$where['column']} {$where['operator']} $paramKey";
+                $paramKey = ":where_{$index}";
+                $conditions[] = "`{$where['column']}` {$where['operator']} {$paramKey}";
                 $this->params[$paramKey] = $where['value'];
             }
-            $sql .= " WHERE " . implode(' AND ', $conditions);
+
+            $sql .= ' WHERE ' . implode(' AND ', $conditions);
         }
 
         if (!empty($this->orderBy)) {
-            $sql .= " ORDER BY " . implode(', ', $this->orderBy);
+            $sql .= ' ORDER BY ' . implode(', ', $this->orderBy);
         }
 
         if ($this->limit !== null) {
-            $sql .= " LIMIT $this->limit";
+            $sql .= ' LIMIT ' . (int) $this->limit;
         }
 
         if ($this->offset !== null) {
-            $sql .= " OFFSET $this->offset";
+            $sql .= ' OFFSET ' . (int) $this->offset;
         }
 
         $db = DatabaseSystem::getInstance();
-        $results = $db->query($sql, $this->params)->fetchAll();
+        $stmt = $db->query($sql, $this->params);
+        $results = $stmt->fetchAll();
 
         $items = [];
         $className = get_class($this->model);
